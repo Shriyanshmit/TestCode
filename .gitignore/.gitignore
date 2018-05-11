@@ -1,0 +1,207 @@
+using System;
+using System.Configuration;
+using System.Data;
+using System.Data.OleDb;
+using System.Data.SqlClient;
+using System.IO;
+using System.Net.Http;
+using System.Web;
+using System.Web.Http;
+using System.Xml;
+
+namespace WebApplication3.Controllers
+{
+    public interface IFileUploader
+    {
+        DataSet ConvertFileToDataTable(string filePath, string fileExtension);
+    }
+
+    public class ExcelFile : IFileUploader
+    {
+        public DataSet ConvertFileToDataTable(string fileLocation, string fileExtension)
+        {
+            DataSet ds = new DataSet();
+
+            string excelConnectionString = string.Empty;
+            excelConnectionString = "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" + fileLocation + ";Extended Properties=\"Excel 12.0;HDR=Yes;IMEX=2\"";
+            //connection String for xls file format.
+            if (fileExtension == ".xls")
+            {
+                excelConnectionString = "Provider=Microsoft.Jet.OLEDB.4.0;Data Source=" + fileLocation + ";Extended Properties=\"Excel 8.0;HDR=Yes;IMEX=2\"";
+            }
+            //connection String for xlsx file format.
+            else if (fileExtension == ".xlsx")
+            {
+                excelConnectionString = "Provider=Microsoft.ACE.OLEDB.12.0;Data Source=" + fileLocation + ";Extended Properties=\"Excel 12.0;HDR=Yes;IMEX=2\"";
+            }
+
+            //Create Connection to Excel work book and add oledb namespace
+            OleDbConnection excelConnection = new OleDbConnection(excelConnectionString);
+            excelConnection.Open();
+            DataTable dt = new DataTable();
+
+            dt = excelConnection.GetOleDbSchemaTable(OleDbSchemaGuid.Tables, null);
+            if (dt == null)
+            {
+                return null;
+            }
+
+            String[] excelSheets = new String[dt.Rows.Count];
+            int t = 0;
+            //excel data saves in temp file here.
+            foreach (DataRow row in dt.Rows)
+            {
+                excelSheets[t] = row["TABLE_NAME"].ToString();
+                t++;
+            }
+            OleDbConnection excelConnection1 = new OleDbConnection(excelConnectionString);
+
+            string query = string.Format("Select * from [{0}]", excelSheets[0]);
+            using (OleDbDataAdapter dataAdapter = new OleDbDataAdapter(query, excelConnection1))
+            {
+                dataAdapter.Fill(ds);
+            }
+
+            return ds;
+        }
+    }
+
+    public class XMLFile : IFileUploader
+    {
+        public DataSet ConvertFileToDataTable(string fileLocation, string fileExtension)
+        {
+            DataSet ds = new DataSet();
+            XmlTextReader xmlreader = new XmlTextReader(fileLocation);
+            // DataSet ds = new DataSet();
+            ds.ReadXml(xmlreader);
+            xmlreader.Close();
+            return ds;
+        }
+    }
+
+    public class CSVFile : IFileUploader
+    {
+        public DataSet ConvertFileToDataTable(string fileLocation, string fileExtension)
+        {
+            DataSet ds = new DataSet();
+            XmlTextReader xmlreader = new XmlTextReader(fileLocation);
+            // DataSet ds = new DataSet();
+            ds.ReadXml(xmlreader);
+            xmlreader.Close();
+            return ds;
+        }
+    }
+
+    public class FileUploaderFacrory
+    {
+        public IFileUploader obj = null;
+        public FileUploaderFacrory(string fileExtension)
+        {
+            if (fileExtension == ".xls" || fileExtension == ".xlsx")
+            {
+                obj = new ExcelFile();
+            }
+            else if (fileExtension == "")
+            {
+                obj = new XMLFile();
+            }
+        }
+
+        public IFileUploader GetObj()
+        {
+            return obj;
+        }
+    }
+
+    public class DocFileController : ApiController
+    {
+
+        // POST api/values
+        public HttpResponseMessage Post()
+        {
+            System.Web.HttpFileCollection hfc = System.Web.HttpContext.Current.Request.Files;
+            DataSet ds = new DataSet();
+
+            var uploadFiles = System.Web.HttpContext.Current.Request.Files;
+            for (int i = 0; i < uploadFiles.Count; i++)
+            {
+                string fileExtension = System.IO.Path.GetExtension(uploadFiles[i].FileName);
+                string str_uploadpath = HttpContext.Current.Server.MapPath("/Files/");
+                string fileLocation = Path.Combine(str_uploadpath, uploadFiles[i].FileName);
+                uploadFiles[i].SaveAs(fileLocation);
+
+                IFileUploader obj = new FileUploaderFacrory(fileExtension).GetObj();
+
+                ds = obj.ConvertFileToDataTable(fileLocation, fileExtension);
+
+            }
+
+            string consString = ConfigurationManager.ConnectionStrings["dbconnection"].ConnectionString;
+            using (SqlConnection con = new SqlConnection(consString))
+            {
+                using (SqlCommand cmd = new SqlCommand("Insert_Customers"))
+                {
+                    cmd.CommandType = CommandType.StoredProcedure;
+                    cmd.Connection = con;
+                    cmd.Parameters.AddWithValue("@tblCustomers", ds.Tables[0]);
+                    con.Open();
+                    cmd.ExecuteNonQuery();
+                    con.Close();
+                }
+            }
+
+            return null;
+        }
+
+    }
+}
+
+// https://www.c-sharpcorner.com/UploadFile/9c6206/import-data-from-excel-file-to-database-table-in-Asp-Net-mvc/
+
+
+//<div id = "body" >
+
+//    < form name="form1" method="post" action="api/docfile" enctype="multipart/form-data">
+
+//        <div>
+
+//            <label>
+
+//                Brows File
+//            </label>
+
+//            <input name = "myFile" type= "file" />
+
+//        </ div >
+
+//        < div >
+
+//            < input type= "submit" value= "Upload" />
+
+//        </ div >
+
+//    </ form >
+//</ div >
+
+//<connectionStrings>
+//    <add name = "dbconnection" connectionString="Data Source=.;Integrated Security=true;Initial Catalog=TestDb" providerName="System.Data.SqlClient" />
+//  </connectionStrings>
+
+//CREATE PROCEDURE[dbo].[Insert_Customers]
+//@tblCustomers CustomerType READONLY
+//AS
+//BEGIN
+//      SET NOCOUNT ON;
+
+//INSERT INTO Customers(CustomerId, Name, Country)
+//      SELECT Id, Name, Country FROM @tblCustomers
+//END
+
+//CREATE TYPE[dbo].[CustomerType]
+//AS TABLE(
+//     [Id] [int] NULL,
+//     [Name] [varchar](100) NULL,
+//      [Country] [varchar] (50) NULL
+//)
+//GO
+
